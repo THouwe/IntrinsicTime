@@ -50,9 +50,9 @@ class DcOS_fractal:
             for _, row in df.iterrows():
                 sample = Sample(row["Price"], row["Timestamp"])
                 dcos.run(sample)
-            results.append((delta, dcos.nDC, dcos.nOS, dcos.nDC + dcos.nOS))
+            results.append((delta, dcos.nDCtot, dcos.nOStot, dcos.nDCtot + dcos.nOStot))
 
-        return pd.DataFrame(results, columns=["threshold", "nDC", "nOS", "nTotal"])
+        return pd.DataFrame(results, columns=["threshold", "nDCtot", "nOStot", "nEVtot"])
 
     def fractal_ranges(self, thresholds, freqs):
         delta, f = np.array(thresholds), np.array(freqs)
@@ -91,7 +91,7 @@ class DcOS_fractal:
         self.dfPath = dfPath or os.getcwd()
 
         results = self.run_dcos_counts(df, thresholds=self.thresholds, initialMode=self.initialMode)
-        results["freq"] = results["nTotal"] / len(df)
+        results["freq"] = results["nEVtot"] / len(df)
         results["stderr"] = np.sqrt(results["freq"] * (1 - np.minimum(results["freq"], 1)) / len(df))
 
         ranges = self.fractal_ranges(results["threshold"], results["freq"])
