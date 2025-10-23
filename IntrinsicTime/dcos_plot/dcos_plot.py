@@ -11,7 +11,7 @@ class DcOS_plotter:
         fig = go.Figure()
 
         # DC Frequency
-        for key, color in [("nEVtot", "2878d1"), ("nDCtot", "42b7b0"), ("nOStot", "b3466c")]:
+        for key, color in [("nEVtot", "#2878d1"), ("nDCtot", "#42b7b0"), ("nOStot", "#b3466c")]:
             freq = results[f"{key}_freq"]
             stderr = results[f"{key}_stderr"]
             fig.add_trace(go.Scatter(
