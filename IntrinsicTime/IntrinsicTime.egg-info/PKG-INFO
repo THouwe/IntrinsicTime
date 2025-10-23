@@ -1,0 +1,41 @@
+Metadata-Version: 2.4
+Name: IntrinsicTime
+Version: 0.1.0
+Summary: Utilities for intrinsic time decomposition and fractal event analysis
+Author-email: Your Name <you@example.com>
+License: MIT
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: scipy
+Requires-Dist: plotly
+Dynamic: license-file
+
+# IntrinsicTime
+
+Utilities for decomposing **intrinsic time** events and analyzing **fractal scaling** behavior in price or signal data.
+
+This package provides:
+- `dcos_core`: A **Directional Change and Overshoot (DcOS)** event detector.
+- `dcos_fractal`: Tools for **fractal scaling** and **multi-threshold analysis**.
+- `dcos_plot`: **Plotly** visualization for interactive fractal plots.
+
+---
+
+## 📦 Installation
+
+### From GitHub
+```
+pip install git+https://github.com/THouwe/IntrinsicTime.git
+```
+
+### Local Install
+```
+git clone https://github.com/THouwe/IntrinsicTime.git
+cd IntrinsicTime
+pip install -e .
+```
+
+### Dependencies
+See `requirements.txt`.
