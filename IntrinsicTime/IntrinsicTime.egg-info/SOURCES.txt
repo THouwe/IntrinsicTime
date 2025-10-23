@@ -1,0 +1,12 @@
+LICENSE
+README.md
+pyproject.toml
+IntrinsicTime/IntrinsicTime.egg-info/PKG-INFO
+IntrinsicTime/IntrinsicTime.egg-info/SOURCES.txt
+IntrinsicTime/IntrinsicTime.egg-info/dependency_links.txt
+IntrinsicTime/IntrinsicTime.egg-info/requires.txt
+IntrinsicTime/IntrinsicTime.egg-info/top_level.txt
+IntrinsicTime/dcos_core/__init__.py
+IntrinsicTime/dcos_core/dcos_core.py
+IntrinsicTime/dcos_fractal/__init__.py
+IntrinsicTime/dcos_fractal/dcos_fractal.py
