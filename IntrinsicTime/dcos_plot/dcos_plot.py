@@ -6,10 +6,10 @@ import plotly.graph_objects as go
 
 
 class DcOS_plotter:
-    def __init__(self):
+    def __init__(self, savePlots=True):
         self.savePlots = savePlots
 
-    def fractal_plot(results, ranges, savePlots=True)
+    def fractal_plot(self, results, ranges, savePlots=True):
         if not isinstance(results, pd.DataFrame):
             raise TypeError("results must be a pandas DataFrame.")
 
@@ -34,7 +34,7 @@ class DcOS_plotter:
 
         # Right Y-axis: Event counts
         fig.add_trace(go.Scatter(
-            x=results["threshold"], y=results["nTotal"],
+            x=results["threshold"], y=results["nEVtot"],
             mode="lines+markers", name="Event Count",
             yaxis="y2", line=dict(color="firebrick", dash="dot")
         ))

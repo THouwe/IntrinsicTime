@@ -35,6 +35,7 @@ It then explores the fractal scaling law between event frequency and detection t
 
 ### Example Usage
 ```
+import numpy as np
 import pandas as pd
 from IntrinsicTime import DcOS_fractal
 

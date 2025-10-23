@@ -30,10 +30,13 @@ class DcOS:
         "DC",
         "osL",
         "totalMove",
-        "nOS",
+        "nOSseq",
+        "nOStot",
+        "nDCseq",
+        "nDCtot",
         "dcL",
-        "nDC",
         "osSegment",
+        "midpriceMode",
     ]
 
     def __init__(self, threshold, initialMode=0, midpriceMode=False):
@@ -43,8 +46,10 @@ class DcOS:
         self.extreme = self.prevExtreme = self.reference = self.prevDC = self.DC = Sample(0, 0)
         self.osL = 0
         self.totalMove = 0
-        self.nOS = 0
-        self.nDC = 0
+        self.nOSseq = 0
+        self.nOStot = 0
+        self.nDCseq = 0
+        self.nDCtot = 0
         self.dcL = 0
         self.osSegment = []
 
@@ -68,7 +73,7 @@ class DcOS:
             if abs(d) >= eta:
                 self.mode = -1 if d > 0 else +1  # -1 means "up mode", +1 "down mode"
                 self.extreme = self.reference = self.DC = self.prevDC = current_price
-                self.nOS = 0
+                self.nOSseq = 0
             return 0
 
         side = -self.mode  # +1 when in up mode, -1 when in down mode
@@ -78,7 +83,9 @@ class DcOS:
             self.extreme = current_price
             if side * math.log(self.extreme.level / self.reference.level) >= eta:
                 self.reference = self.extreme
-                self.nOS += 1
+                self.nOSseq += 1
+                self.nOStot += 1
+                self.nDCseq = 0
                 return 2 * side
             return 0
 
@@ -93,7 +100,8 @@ class DcOS:
             self.prevExtreme = self.extreme
             self.extreme = self.reference = current_price
             self.mode *= -1
-            self.nOS = 0
-            self.nDC += 1
+            self.nOSseq = 0
+            self.nDCseq += 1
+            self.nDCtot += 1
             return -side
         return 0
