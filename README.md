@@ -9,7 +9,7 @@ This package provides:
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### From GitHub
 ```
@@ -25,3 +25,30 @@ pip install -e .
 
 ### Dependencies
 See `requirements.txt`.
+
+---
+
+## Overview
+
+IntrinsicTime decomposes time series into Directional Changes (DCs) and Overshoots (OSs) based on log-scale thresholds.
+It then explores the fractal scaling law between event frequency and detection threshold.
+
+### Example Usage
+```
+import pandas as pd
+from IntrinsicTime import DcOS_fractal
+
+# Example input DataFrame
+df = pd.DataFrame({
+    "Timestamp": range(1000),
+    "Price": 100 + np.cumsum(np.random.randn(1000))
+})
+
+# Initialize and run
+analyzer = DcOS_fractal(debugMode=True)
+results, ranges = analyzer.run(df)
+
+# Display results
+print(results.head())
+print(ranges)
+```
