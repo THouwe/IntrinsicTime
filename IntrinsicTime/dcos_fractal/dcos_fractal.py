@@ -3,10 +3,13 @@ import numpy as np
 from scipy.stats import linregress
 import os
 from pathlib import Path
+import pickle
+
 from dcos_core.dcos_core import DcOS, Sample
 
+
 class DcOS_fractal:
-    def __init__(self, thresholds=None, threshWinLen=7, r2min=0.98, initialMode=-1, debugMode=False):
+    def __init__(self, thresholds=None, threshWinLen=7, r2min=0.98, initialMode=0, debugMode=False):
         if thresholds is None:
             thresholds = np.logspace(-5, -1, 30)
         self.thresholds = thresholds
@@ -16,6 +19,7 @@ class DcOS_fractal:
         self.debugMode = debugMode
         self.df = None
         self.dfPath = None
+
 
     @staticmethod
     def _validate_input(df):
@@ -28,6 +32,7 @@ class DcOS_fractal:
         if not np.issubdtype(df["Price"].dtype, np.number):
             raise TypeError("Column 'Price' must be numeric.")
         return True
+
 
     def run_dcos_counts(self, df, thresholds=None, initialMode=None):
         self._validate_input(df)
@@ -45,12 +50,36 @@ class DcOS_fractal:
             data.append((δ, dcos.nDCtot, dcos.nOStot, dcos.nDCtot + dcos.nOStot))
         return pd.DataFrame(data, columns=["threshold", "nDCtot", "nOStot", "nEVtot"])
 
+
     def compute_freqs(self, results, n_ticks):
         for key in ["nDCtot", "nOStot", "nEVtot"]:
             results[f"{key}_freq"] = results[key] / n_ticks
             p = results[f"{key}_freq"]
             results[f"{key}_stderr"] = np.sqrt(p * (1 - np.minimum(p, 1)) / n_ticks)
         return results
+
+
+    def analyze_tail_scaling(self, results):
+        """Find last valid threshold and fit tail region in log-log space."""
+        # valid where 0 < %DC < 100
+        dc_pct = 100 * results["nDCtot_freq"] / results["nEVtot_freq"]
+        valid_mask = (dc_pct > 0) & (dc_pct < 100)
+        last_valid = valid_mask[::-1].idxmax()
+
+        # tail region = last threshWinLen points
+        fit_slice = results.iloc[max(0, last_valid - self.threshWinLen + 1): last_valid + 1]
+        fits = {}
+        for key in ["nEVtot_freq", "nDCtot_freq", "nOStot_freq"]:
+            x = np.log10(fit_slice["threshold"].values)
+            y = np.log10(fit_slice[key].values)
+            slope, intercept, r, _, _ = linregress(x, y)
+            fits[key] = {"slope": slope, "intercept": intercept, "r2": r**2}
+
+        results.attrs["tail_fit"] = fits
+        results.attrs["last_valid_idx"] = last_valid
+        return results
+
+
 
     def fractal_ranges(self, thresholds, freqs):
         δ, f = np.array(thresholds), np.array(freqs)
@@ -66,6 +95,7 @@ class DcOS_fractal:
             if r**2 >= self.r2min:
                 ranges.append((10**x[i], 10**x[i+self.threshWinLen-1], slope, r**2))
         return pd.DataFrame(ranges, columns=["δ_L", "δ_U", "slope", "R2"])
+
 
     def estimate_breakpoint(self, results, w=None, r2min=None, z=2.0):
         if w is None: w = self.threshWinLen
@@ -95,6 +125,54 @@ class DcOS_fractal:
         f_break = float(results.loc[(np.abs(results["threshold"] - δ_break)).argmin(), "nEVtot_freq"]) if np.isfinite(δ_break) else np.nan
         return δ_break, f_break
 
+
+    def find_upper_cutoff(self, results, threshWinLen=None, weightFactor=4):
+        """Find δ_upper dynamically using frequency-weighted R² sensitivity."""
+        if threshWinLen is None:
+            threshWinLen = self.threshWinLen
+        δ = results["threshold"].values
+        f = results["nEVtot_freq"].values
+        n_ev = results["nEVtot"].values
+        x, y = np.log10(δ), np.log10(f)
+
+        # Sliding R² computation
+        R2_series = []
+        for i in range(len(x) - threshWinLen + 1):
+            xi, yi = x[i:i + threshWinLen], y[i:i + threshWinLen]
+            _, _, r, _, _ = linregress(xi, yi)
+            R2_series.append(r**2)
+        R2_series = np.array(R2_series)
+
+        # Normalize weights: higher nEVtot → tighter tolerance
+        weights = n_ev[threshWinLen - 1:] / np.max(n_ev)
+        weights = np.clip(weights, 1e-3, 1.0)  # avoid zeros
+
+        # Adaptive tolerance: base ± weighted term
+        base_tol = 0.01 * np.mean(R2_series)         # base sensitivity
+        weighted_tol = base_tol * np.exp(weightFactor * (1 - weights))
+        # weighted_tol = base_tol * (1 / weights) ** weightFactor # looser for fewer events
+
+        # diff = np.maximum(0, self.r2min - R2_series)
+        diff = np.maximum(0, 1 - R2_series)
+
+        # Identify degradation where diff exceeds adaptive tolerance
+        bad_mask = diff > weighted_tol
+        bad_idx = np.argmax(bad_mask)
+
+        print(f"weighted_tol = {weighted_tol}")
+        print(f"diff = {diff}")
+
+        # if bad_idx == 0 or not np.any(bad_mask):
+        #     results.attrs["delta_upper_cutoff"] = np.nan
+        #     print("No clear upper cutoff detected.")
+        #     return np.nan
+
+        δ_upper = δ[bad_idx + threshWinLen - 1]
+        results.attrs["delta_upper_cutoff"] = δ_upper
+        print(f"Weighted upper cutoff detected at δ = {δ_upper:.3e}")
+        return δ_upper
+
+
     def run_analysis(self, df=None, dfPath=None, dfName=None):
         if df is None:
             if not dfName:
@@ -107,6 +185,42 @@ class DcOS_fractal:
 
         results = self.run_dcos_counts(df)
         results = self.compute_freqs(results, len(df))
+        results = self.analyze_tail_scaling(results)
         ranges = self.fractal_ranges(results["threshold"], results["nEVtot_freq"])
         δ_break, f_break = self.estimate_breakpoint(results)
-        return results, ranges, δ_break, f_break
+        δ_upper = self.find_upper_cutoff(results)
+        return results, ranges, δ_break, f_break, δ_upper
+
+
+    def save_results(self, results, ranges, delta_break, f_break, delta_upper, filename="dcos_results.pkl"):
+        """Save DcOS fractal analysis outputs using pickle."""
+        data = {
+            "results": results,
+            "ranges": ranges,
+            "delta_break": delta_break,
+            "f_break": f_break,
+            "delta_upper": delta_upper,
+        }
+        out_path = Path(self.dfPath or ".") / filename
+        with open(out_path, "wb") as f:
+            pickle.dump(data, f)
+        print(f"Results saved to {out_path}")
+        return out_path
+
+
+    def load_results(self, filename="dcos_results.pkl"):
+        """Load DcOS fractal analysis outputs from pickle file."""
+        import pickle
+        path = Path(self.dfPath or ".") / filename
+        if not path.exists():
+            raise FileNotFoundError(f"No pickle file found at {path}")
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        print(f"Results loaded from {path}")
+        return (
+            data["results"],
+            data["ranges"],
+            data["delta_break"],
+            data["f_break"],
+            data["delta_upper"],
+        )
