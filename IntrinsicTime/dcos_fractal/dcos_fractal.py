@@ -96,7 +96,7 @@ class DcOS_fractal:
 
     # ------------------------------ Fit Region: 60–70% DC ------------------------------
     def determine_fit_region(self, results, low_pt, high_pt):
-        """Find δ_min where %DC ≥ 60%, δ_max where %DC < 70% (the previous δ)."""
+        """Find δ_min where %DC ≥ low_pt%, δ_max where %DC < high_pt% (the previous δ)."""
         δ_min_fit, δ_max_fit = np.nan, np.nan
 
         # lower bound: first δ where %DC ≥ 60%
@@ -107,9 +107,9 @@ class DcOS_fractal:
         # upper bound: previous δ before first %DC ≥ 70%
         mask_high = results["dc_pct"] >= high_pt
         if np.any(mask_high):
-            idx_70 = results.index[mask_high][0]
-            if idx_70 > 0:
-                δ_max_fit = results.loc[results.index[idx_70 - 1], "threshold"]
+            idx_high = results.index[mask_high][0]
+            if idx_high > 0:
+                δ_max_fit = results.loc[results.index[idx_high - 1], "threshold"]
         else:
             δ_max_fit = results["threshold"].max()
 
@@ -117,7 +117,7 @@ class DcOS_fractal:
         results.attrs["δ_max_fit"] = δ_max_fit
 
         if self.debugMode:
-            print(f"Fit region: 60% ≤ δ ≤ 70% → [{δ_min_fit:.3e}, {δ_max_fit:.3e}]")
+            print(f"Fit region: {low_pt}% ≤ δ ≤ {high_pt}% → [{δ_min_fit:.3e}, {δ_max_fit:.3e}]")
 
         return δ_min_fit, δ_max_fit
 
