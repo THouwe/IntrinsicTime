@@ -95,54 +95,56 @@ class DcOS_fractal:
 
 
     # ------------------------------ Fit Region: centered on low_pt ------------------------------
-    def determine_fit_region(self, results, low_pt=62, high_pt_change=4):
+    def determine_fit_region(self, results, low_pt=61.5, high_pt_change=4):
         dc = results["dc_pct"].values
-        δ = results["threshold"].values
-        n = len(dc)
-
+        δ  = results["threshold"].values
+        n  = len(dc)
         if n == 0:
             results.attrs["δ_min_fit"] = np.nan
             results.attrs["δ_max_fit"] = np.nan
-            return np.nan, np.nan
+            return results
 
-        # --- Lower bound logic ---
+        # lower bound: first index where %DC crosses low_pt
         if dc[0] < low_pt:
-            # first δ where %DC ≥ low_pt
             idx_low = np.argmax(dc >= low_pt) if np.any(dc >= low_pt) else None
         else:
-            # first δ where %DC < low_pt
-            idx_low = np.argmax(dc < low_pt) if np.any(dc < low_pt) else None
-
+            idx_low = np.argmax(dc <  low_pt) if np.any(dc <  low_pt) else None
         if idx_low is None or idx_low == 0:
             results.attrs["δ_min_fit"] = np.nan
             results.attrs["δ_max_fit"] = np.nan
-            return np.nan, np.nan
+            return results
 
         δ_min_fit = δ[idx_low]
 
-        # --- Upper bound logic ---
-        # first δ, greater than lower bound, just before %DC enters [low_pt - high_pt_change, low_pt + high_pt_change]
+        # upper bound: first δ > idx_low where %DC leaves the band
+        lo = low_pt - high_pt_change
+        hi = low_pt + high_pt_change
         δ_max_fit = np.nan
+        idx_high  = idx_low
         for j in range(idx_low + 1, n):
-            if (low_pt - high_pt_change) < dc[j] < (low_pt + high_pt_change):
-                δ_max_fit = δ[j - 1]
+            if not (lo < dc[j] < hi):        # ← leave band
+                idx_high  = j - 1            # last in-band point
+                δ_max_fit = δ[idx_high]
                 break
-
         if not np.isfinite(δ_max_fit):
-            δ_max_fit = δ[-1]
+            idx_high  = n - 1
+            δ_max_fit = δ[idx_high]
 
+        results.attrs["idx_low"]   = idx_low
+        results.attrs["idx_high"]  = idx_high
         results.attrs["δ_min_fit"] = δ_min_fit
         results.attrs["δ_max_fit"] = δ_max_fit
-
-        if self.debugMode:
-            print(f"Fit region: lower={δ_min_fit:.3e}, upper={δ_max_fit:.3e}")
-
-        return δ_min_fit, δ_max_fit
+        return results
 
 
     # ------------------------------ Tail Fitting ------------------------------
     def analyze_tail_scaling(self, results, δ_min_fit=None, δ_max_fit=None):
         """Fit regression within the δ_min_fit – δ_min_fit% region+-δ_max_fit."""
+        if δ_min_fit is None:
+            δ_min_fit = results.attrs.get("δ_min_fit", np.nan)
+        if δ_max_fit is None:
+            δ_max_fit = results.attrs.get("δ_max_fit", np.nan)
+
         if not np.isfinite(δ_min_fit) or not np.isfinite(δ_max_fit):
             if self.debugMode:
                 print("Invalid fit region → skipping regression.")
@@ -158,13 +160,19 @@ class DcOS_fractal:
 
         fits = {}
         for key in ["nEVtot_freq", "nDCtot_freq", "nOStot_freq"]:
-            x = np.log10(trimmed["threshold"].values)
-            y = np.log10(trimmed[key].values)
+            mask_valid = trimmed[key] > 0
+            x = np.log10(trimmed.loc[mask_valid, "threshold"].values)
+            y = np.log10(trimmed.loc[mask_valid, key].values)
             if len(np.unique(x)) < 2:
                 fits[key] = {"slope": np.nan, "intercept": np.nan, "r2": np.nan}
                 results[f"y_pred_{key}"] = np.nan
                 continue
             slope, intercept, r, _, _ = linregress(x, y)
+            if np.isnan(slope) or np.isnan(intercept):
+                if self.debugMode:
+                    print(f"Skipping {key} fit due to NaNs.")
+                results[f"y_pred_{key}"] = np.nan
+                continue
             fits[key] = {"slope": slope, "intercept": intercept, "r2": r**2}
             results[f"y_pred_{key}"] = 10 ** (intercept + slope * np.log10(results["threshold"]))
 
@@ -178,7 +186,7 @@ class DcOS_fractal:
 
 
     # ------------------------------ Main Pipeline ------------------------------
-    def run_analysis(self, df=None, dfPath=None, dfName=None, low_pt=62, high_pt_change=4, parallel=True):
+    def run_count_and_analysis(self, df=None, dfPath=None, dfName=None, low_pt=61.5, high_pt_change=4, parallel=True):
         if df is None:
             if not dfName:
                 raise ValueError("Provide either a DataFrame or dfName.")
@@ -186,17 +194,18 @@ class DcOS_fractal:
             full_path = Path(dfPath or ".") / dfName
             df = pd.read_csv(full_path) if ext == ".csv" else pd.read_parquet(full_path)
 
-        self.df, self.dfPath = df, dfPath or os.getcwd()
+        # self.df, self.dfPath = df, dfPath or os.getcwd()
 
         results = self.run_dcos_counts_parallel(df) if parallel else self.run_dcos_counts(df)
         results = self.compute_freqs(results, len(df))
+        results = self.run_analysis(dfPath, dfName, low_pt, high_pt_change)
+        return results
 
-        δ_min_fit, δ_max_fit = self.determine_fit_region(results, low_pt, high_pt_change)
-        results = self.analyze_tail_scaling(results, δ_min_fit, δ_max_fit)
-
+    def run_analysis(self, dfPath, dfName, low_pt=61.5, high_pt_change=4):
+        results = self.load_results(dfPath, dfName)
+        results = self.determine_fit_region(results, low_pt, high_pt_change)
+        results = self.analyze_tail_scaling(results)
         results.attrs.update({
-            "δ_min_fit": δ_min_fit,
-            "δ_max_fit": δ_max_fit,
             "params": {
                 "thresholds": self.thresholds.tolist(),
                 "threshWinLen": self.threshWinLen,
@@ -207,16 +216,18 @@ class DcOS_fractal:
 
 
     # ------------------------------ Save / Load ------------------------------
-    def save_results(self, results, filename="dcos_results.pkl"):
-        path = Path(self.dfPath or ".") / filename
+    def save_results(self, results, dfPath=None, dfName="dcos_results.pkl"):
+        self.dfPath = dfPath
+        path = Path(self.dfPath or ".") / dfName
         with open(path, "wb") as f:
             pickle.dump(results, f)
         if self.debugMode:
             print(f"Saved results to {path}")
-        return path
+        return self
 
-    def load_results(self, filename="dcos_results.pkl"):
-        path = Path(self.dfPath or ".") / filename
+    def load_results(self, dfPath=None, dfName="dcos_results.pkl"):
+        self.dfPath = dfPath
+        path = Path(self.dfPath or ".") / dfName
         if not path.exists():
             raise FileNotFoundError(f"No pickle file found at {path}")
         with open(path, "rb") as f:
