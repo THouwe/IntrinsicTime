@@ -10,7 +10,7 @@ class DcOS_plotter:
         self.dfPath = Path(dfPath)
 
 
-    def fractal_plot(self, results, low_pt=60, high_pt_change=10,
+    def fractal_plot(self, results, low_pt=62, high_pt_change=4,
                      savePlots=True, filename="dcos_fractal.html", dfPath=None):
         fig = go.Figure()
 
