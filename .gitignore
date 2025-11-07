@@ -3,3 +3,5 @@
 **/*.csv
 **/*.html
 **/BTCUSDT*
+**/__pycache__/
+**/.ipynb_checkpoints/
