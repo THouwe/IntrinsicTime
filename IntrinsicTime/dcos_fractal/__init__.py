@@ -1,1 +1,1 @@
-__all__ = ["dcos_fractal"]
+__all__ = ["DcOS_fractal"]

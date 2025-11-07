@@ -24,11 +24,6 @@ class DcOS_fractal:
         self.thresholds = thresholds
         self.initialMode = initialMode
         self.debugMode = debugMode
-        # self.threshWinLen = threshWinLen
-        # self.r2min = r2min
-
-        # self.df = None
-        # self.dfPath = None
 
 
     # ------------------------------ Input Validation ------------------------------
@@ -50,8 +45,8 @@ class DcOS_fractal:
     def _run_single_threshold(args):
         δ, df, initialMode = args
         dcos = DcOS(threshold=δ, initialMode=initialMode, midpriceMode=False)
-        for _, row in df.iterrows():
-            dcos.run(Sample(row["Price"], row["Timestamp"]))
+        for row in df.itertuples(index=False):
+            dcos.run(Sample(row.Price, row.Timestamp))
         return δ, dcos.nDCtot, dcos.nOStot, dcos.nDCtot + dcos.nOStot
 
 
@@ -72,8 +67,8 @@ class DcOS_fractal:
         data = []
         for δ in thresholds:
             dcos = DcOS(threshold=δ, initialMode=initialMode, midpriceMode=False)
-            for _, row in df.iterrows():
-                sample = Sample(row["Price"], row["Timestamp"])
+            for row in df.itertuples(index=False):
+                dcos.run(Sample(row.Price, row.Timestamp))
                 dcos.run(sample)
             data.append((δ, dcos.nDCtot, dcos.nOStot, dcos.nDCtot + dcos.nOStot))
         return pd.DataFrame(data, columns=["threshold", "nDCtot", "nOStot", "nEVtot"])
@@ -194,25 +189,15 @@ class DcOS_fractal:
             full_path = Path(dfPath or ".") / dfName
             df = pd.read_csv(full_path) if ext == ".csv" else pd.read_parquet(full_path)
 
-        # self.df, self.dfPath = df, dfPath or os.getcwd()
         results = self.run_dcos_counts_parallel(df) if parallel else self.run_dcos_counts(df)
         results = self.compute_freqs(results, len(df))
         results.attrs["thresholds"] = self.thresholds
-        # results = self.run_analysis(dfPath, dfName, low_pt, high_pt_change)
         return results
 
 
     def run_analysis(self, results, low_pt=61.5, high_pt_change=4):
-        # results = self.load_results(dfPath, dfName)
         results = self.determine_fit_region(results, low_pt, high_pt_change)
         results = self.analyze_tail_scaling(results)
-        # results.attrs.update({
-        #     "params": {
-        #         "thresholds": self.thresholds.tolist(),
-        #         "threshWinLen": self.threshWinLen,
-        #         "r2min": self.r2min,
-        #     },
-        # })
         return results
 
 

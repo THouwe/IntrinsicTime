@@ -1,1 +1,1 @@
-__all__ = ["dcos_plot"]
+__all__ = ["DcOS_plot"]
