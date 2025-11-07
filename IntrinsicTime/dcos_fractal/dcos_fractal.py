@@ -18,17 +18,17 @@ class DcOS_fractal:
     Adds predicted y values (y_pred_*) for all fitted frequencies.
     """
 
-    def __init__(self, thresholds=None, threshWinLen=7, r2min=0.98,
-                 initialMode=-1, debugMode=False):
+    def __init__(self, thresholds=None, initialMode=0, debugMode=False): # threshWinLen=7, r2min=0.98,
         if thresholds is None:
-            thresholds = np.logspace(-5, -1, 50)
+            thresholds = np.logspace(-5, 0, 100)
         self.thresholds = thresholds
-        self.threshWinLen = threshWinLen
-        self.r2min = r2min
         self.initialMode = initialMode
         self.debugMode = debugMode
-        self.df = None
-        self.dfPath = None
+        # self.threshWinLen = threshWinLen
+        # self.r2min = r2min
+
+        # self.df = None
+        # self.dfPath = None
 
 
     # ------------------------------ Input Validation ------------------------------
@@ -55,7 +55,7 @@ class DcOS_fractal:
         return δ, dcos.nDCtot, dcos.nOStot, dcos.nDCtot + dcos.nOStot
 
 
-    def run_dcos_counts_parallel(self, df, thresholds=None, initialMode=-1, max_workers=None):
+    def run_dcos_counts_parallel(self, df, thresholds=None, initialMode=0, max_workers=None):
         self._validate_input(df)
         if thresholds is None:
             thresholds = self.thresholds
@@ -65,7 +65,7 @@ class DcOS_fractal:
         return pd.DataFrame(results, columns=["threshold", "nDCtot", "nOStot", "nEVtot"])
 
 
-    def run_dcos_counts(self, df, thresholds=None, initialMode=-1):
+    def run_dcos_counts(self, df, thresholds=None, initialMode=0):
         self._validate_input(df)
         if thresholds is None:
             thresholds = self.thresholds
@@ -106,9 +106,9 @@ class DcOS_fractal:
 
         # lower bound: first index where %DC crosses low_pt
         if dc[0] < low_pt:
-            idx_low = np.argmax(dc >= low_pt) if np.any(dc >= low_pt) else None
+            idx_low = np.argmax(dc > low_pt) if np.any(dc > low_pt) else None
         else:
-            idx_low = np.argmax(dc <  low_pt) if np.any(dc <  low_pt) else None
+            idx_low = np.argmax(dc <  low_pt + 1.5) if np.any(dc <  low_pt + 1.5) else None
         if idx_low is None or idx_low == 0:
             results.attrs["δ_min_fit"] = np.nan
             results.attrs["δ_max_fit"] = np.nan
@@ -186,7 +186,7 @@ class DcOS_fractal:
 
 
     # ------------------------------ Main Pipeline ------------------------------
-    def run_count_and_analysis(self, df=None, dfPath=None, dfName=None, low_pt=61.5, high_pt_change=4, parallel=True):
+    def run_count(self, df=None, dfPath=None, dfName=None, parallel=True): # , low_pt=61.5, high_pt_change=4,
         if df is None:
             if not dfName:
                 raise ValueError("Provide either a DataFrame or dfName.")
@@ -195,23 +195,37 @@ class DcOS_fractal:
             df = pd.read_csv(full_path) if ext == ".csv" else pd.read_parquet(full_path)
 
         # self.df, self.dfPath = df, dfPath or os.getcwd()
-
         results = self.run_dcos_counts_parallel(df) if parallel else self.run_dcos_counts(df)
         results = self.compute_freqs(results, len(df))
-        results = self.run_analysis(dfPath, dfName, low_pt, high_pt_change)
+        results.attrs["thresholds"] = self.thresholds
+        # results = self.run_analysis(dfPath, dfName, low_pt, high_pt_change)
         return results
 
-    def run_analysis(self, dfPath, dfName, low_pt=61.5, high_pt_change=4):
-        results = self.load_results(dfPath, dfName)
+
+    def run_analysis(self, results, low_pt=61.5, high_pt_change=4):
+        # results = self.load_results(dfPath, dfName)
         results = self.determine_fit_region(results, low_pt, high_pt_change)
         results = self.analyze_tail_scaling(results)
-        results.attrs.update({
-            "params": {
-                "thresholds": self.thresholds.tolist(),
-                "threshWinLen": self.threshWinLen,
-                "r2min": self.r2min,
-            },
-        })
+        # results.attrs.update({
+        #     "params": {
+        #         "thresholds": self.thresholds.tolist(),
+        #         "threshWinLen": self.threshWinLen,
+        #         "r2min": self.r2min,
+        #     },
+        # })
+        return results
+
+
+    def run_count_and_analysis(self, df=None, dfPath=None, dfName=None, low_pt=61.5, high_pt_change=4, parallel=True):
+        if df is None:
+            if not dfName:
+                raise ValueError("Provide either a DataFrame or dfName.")
+            ext = Path(dfName).suffix.lower()
+            full_path = Path(dfPath or ".") / dfName
+            df = pd.read_csv(full_path) if ext == ".csv" else pd.read_parquet(full_path)
+
+        results = self.run_count(df, dfPath, dfName, parallel)
+        results = self.run_analysis(results, low_pt, high_pt_change)
         return results
 
 
