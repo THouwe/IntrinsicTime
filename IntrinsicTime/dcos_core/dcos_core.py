@@ -1,4 +1,3 @@
-# /IntrinsicTime/dcos_core/dcos_core.py
 import math
 import numpy as np
 

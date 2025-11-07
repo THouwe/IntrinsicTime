@@ -6,7 +6,7 @@ from pathlib import Path
 import pickle
 from concurrent.futures import ProcessPoolExecutor
 
-from dcos_core.dcos_core import DcOS, Sample
+from IntrinsicTime.dcos_core.dcos_core import DcOS, Sample
 
 
 class DcOS_fractal:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "IntrinsicTime"
-version = "0.1.0"
+version = "0.1.1"
 authors = [{ name = "Tom Houweling", email = "thomas.houweling@gmail.com" }]
 description = "Utilities for intrinsic time decomposition and fractal event analysis"
 readme = "README.md"
@@ -13,4 +13,5 @@ requires-python = ">=3.9"
 dependencies = ["numpy", "pandas", "scipy", "plotly"]
 
 [tool.setuptools.packages.find]
-where = ["IntrinsicTime"]
+where = ["."]
+include = ["IntrinsicTime*"]
