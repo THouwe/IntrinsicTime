@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: IntrinsicTime
-Version: 0.1.1
+Version: 0.1.2
 Summary: Utilities for intrinsic time decomposition and fractal event analysis
 Author-email: Tom Houweling <thomas.houweling@gmail.com>
 License: MIT License

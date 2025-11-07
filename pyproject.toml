@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "IntrinsicTime"
-version = "0.1.1"
+version = "0.1.2"
 authors = [{ name = "Tom Houweling", email = "thomas.houweling@gmail.com" }]
 description = "Utilities for intrinsic time decomposition and fractal event analysis"
 readme = "README.md"
