@@ -4,7 +4,7 @@ from scipy.stats import linregress
 import os
 from pathlib import Path
 import pickle
-from concurrent.futures import ProcessPoolExecutor
+import multiprocessing as mp
 
 from IntrinsicTime.dcos_core.dcos_core import DcOS, Sample
 
@@ -12,19 +12,15 @@ from IntrinsicTime.dcos_core.dcos_core import DcOS, Sample
 class DcOS_fractal:
     """
     Intrinsic Time fractal scaling analysis.
-    Final regression region:
-      - lower bound: index of first δ where %DC ≥ low_pt%
-      - upper bound: index of δ, greater than lower bound just before first δ where low_pt-high_pt_change < %DC < low_pt+high_pt_change
-    Adds predicted y values (y_pred_*) for all fitted frequencies.
+    Now uses safe parallelization (workers receive NumPy arrays, not DataFrames).
     """
 
-    def __init__(self, thresholds=None, initialMode=0, debugMode=False): # threshWinLen=7, r2min=0.98,
+    def __init__(self, thresholds=None, initialMode=0, debugMode=False):
         if thresholds is None:
-            thresholds = np.logspace(-5, 0, 100)
+            thresholds = np.logspace(-5, 0, 50)
         self.thresholds = thresholds
         self.initialMode = initialMode
         self.debugMode = debugMode
-
 
     # ------------------------------ Input Validation ------------------------------
     @staticmethod
@@ -39,40 +35,64 @@ class DcOS_fractal:
             raise TypeError("Column 'Price' must be numeric.")
         return True
 
-
-    # ------------------------------ Single threshold run ------------------------------
+    # ------------------------------ Worker: one threshold ------------------------------
     @staticmethod
-    def _run_single_threshold(args):
-        δ, df, initialMode = args
+    def _run_threshold_full(args):
+        δ, arr, initialMode = args
         dcos = DcOS(threshold=δ, initialMode=initialMode, midpriceMode=False)
-        for row in df.itertuples(index=False):
-            dcos.run(Sample(row.Price, row.Timestamp))
-        return δ, dcos.nDCtot, dcos.nOStot, dcos.nDCtot + dcos.nOStot
+        seq = []
+        # iterate over pre-packed numpy array: columns [Timestamp, Price]
+        for timestamp, price in arr:
+            code = dcos.run(Sample(price, timestamp))
+            if code != 0:
+                seq.append(code)
+        η = np.log1p(δ)
+        norm_os = [seg / η for seg in dcos.osSegment if seg > 0]
+        return (
+            δ,
+            dcos.nDCtot,
+            dcos.nOStot,
+            dcos.nDCtot + dcos.nOStot,
+            np.array(seq, int),
+            np.array(norm_os, float),
+        )
 
-
-    def run_dcos_counts_parallel(self, df, thresholds=None, initialMode=0, max_workers=None):
+    # ------------------------------ Parallel runner ------------------------------
+    def run_dcos_all_parallel(
+        self, df, thresholds=None, initialMode=0, max_workers=None, record_events=True
+    ):
+        """
+        Runs DcOS once per threshold in parallel.
+        Uses a NumPy array instead of DataFrame for interprocess safety.
+        Returns:
+            results (DataFrame),
+            event_sequences (dict),
+            os_segments (dict)
+        """
         self._validate_input(df)
         if thresholds is None:
             thresholds = self.thresholds
-        with ProcessPoolExecutor(max_workers=max_workers) as ex:
-            results = list(ex.map(self._run_single_threshold,
-                                  [(δ, df, initialMode) for δ in thresholds]))
-        return pd.DataFrame(results, columns=["threshold", "nDCtot", "nOStot", "nEVtot"])
+        if max_workers is None:
+            max_workers = os.cpu_count()
 
+        # convert to lightweight array (Timestamp, Price)
+        arr = df[["Timestamp", "Price"]].to_numpy(dtype=float)
 
-    def run_dcos_counts(self, df, thresholds=None, initialMode=0):
-        self._validate_input(df)
-        if thresholds is None:
-            thresholds = self.thresholds
-        data = []
-        for δ in thresholds:
-            dcos = DcOS(threshold=δ, initialMode=initialMode, midpriceMode=False)
-            for row in df.itertuples(index=False):
-                dcos.run(Sample(row.Price, row.Timestamp))
-                dcos.run(sample)
-            data.append((δ, dcos.nDCtot, dcos.nOStot, dcos.nDCtot + dcos.nOStot))
-        return pd.DataFrame(data, columns=["threshold", "nDCtot", "nOStot", "nEVtot"])
+        args = [(δ, arr, initialMode) for δ in thresholds]
 
+        with mp.get_context("spawn").Pool(processes=max_workers) as pool:
+            outputs = pool.map(self._run_threshold_full, args)
+
+        records = []
+        event_sequences, os_segments = {}, {}
+        for δ, nDC, nOS, nEV, seq, norm_os in outputs:
+            records.append((δ, nDC, nOS, nEV))
+            if record_events:
+                event_sequences[δ] = seq
+                os_segments[δ] = norm_os
+
+        results = pd.DataFrame(records, columns=["threshold", "nDCtot", "nOStot", "nEVtot"])
+        return results, event_sequences, os_segments
 
     # ------------------------------ Frequency Computation ------------------------------
     def compute_freqs(self, results, n_ticks):
@@ -88,53 +108,46 @@ class DcOS_fractal:
         results["dc_pct_stderr"] = 100 * np.sqrt(p * (1 - p) / np.maximum(n, 1))
         return results
 
-
-    # ------------------------------ Fit Region: centered on low_pt ------------------------------
-    def determine_fit_region(self, results, low_pt=61.5, high_pt_change=4):
+    # ------------------------------ Fit Region ------------------------------
+    def determine_fit_region(self, results, pt_constant=61.21, pt_tolerance=2.5):
         dc = results["dc_pct"].values
-        δ  = results["threshold"].values
-        n  = len(dc)
+        δ = results["threshold"].values
+        n = len(dc)
         if n == 0:
             results.attrs["δ_min_fit"] = np.nan
             results.attrs["δ_max_fit"] = np.nan
             return results
 
-        # lower bound: first index where %DC crosses low_pt
-        if dc[0] < low_pt:
-            idx_low = np.argmax(dc > low_pt) if np.any(dc > low_pt) else None
+        if dc[0] < pt_constant:
+            idx_start_flat = np.argmax(dc > pt_constant) if np.any(dc > pt_constant) else None
         else:
-            idx_low = np.argmax(dc <  low_pt + 1.5) if np.any(dc <  low_pt + 1.5) else None
-        if idx_low is None or idx_low == 0:
+            idx_start_flat = np.argmax(dc < pt_constant) if np.any(dc < pt_constant) else None
+        if idx_start_flat is None or idx_start_flat == 0:
             results.attrs["δ_min_fit"] = np.nan
             results.attrs["δ_max_fit"] = np.nan
             return results
 
-        δ_min_fit = δ[idx_low]
+        δ_min_fit = δ[idx_start_flat]
 
-        # upper bound: first δ > idx_low where %DC leaves the band
-        lo = low_pt - high_pt_change
-        hi = low_pt + high_pt_change
+        lo, hi = pt_constant - pt_tolerance, pt_constant + pt_tolerance
         δ_max_fit = np.nan
-        idx_high  = idx_low
-        for j in range(idx_low + 1, n):
-            if not (lo < dc[j] < hi):        # ← leave band
-                idx_high  = j - 1            # last in-band point
-                δ_max_fit = δ[idx_high]
+        idx_end_flat = idx_start_flat
+        for j in range(idx_start_flat + 1, n):
+            if not (lo < dc[j] < hi):
+                idx_end_flat = j - 1
+                δ_max_fit = δ[idx_end_flat]
                 break
         if not np.isfinite(δ_max_fit):
-            idx_high  = n - 1
-            δ_max_fit = δ[idx_high]
+            idx_end_flat = n - 1
+            δ_max_fit = δ[idx_end_flat]
 
-        results.attrs["idx_low"]   = idx_low
-        results.attrs["idx_high"]  = idx_high
-        results.attrs["δ_min_fit"] = δ_min_fit
-        results.attrs["δ_max_fit"] = δ_max_fit
+        results.attrs.update(
+            {"idx_start_flat": idx_start_flat, "idx_end_flat": idx_end_flat, "δ_min_fit": δ_min_fit, "δ_max_fit": δ_max_fit}
+        )
         return results
-
 
     # ------------------------------ Tail Fitting ------------------------------
     def analyze_tail_scaling(self, results, δ_min_fit=None, δ_max_fit=None):
-        """Fit regression within the δ_min_fit – δ_min_fit% region+-δ_max_fit."""
         if δ_min_fit is None:
             δ_min_fit = results.attrs.get("δ_min_fit", np.nan)
         if δ_max_fit is None:
@@ -179,9 +192,8 @@ class DcOS_fractal:
                 print(f"{k}: β={v['slope']:.3f}, R²={v['r2']:.3f}")
         return results
 
-
     # ------------------------------ Main Pipeline ------------------------------
-    def run_count(self, df=None, dfPath=None, dfName=None, parallel=True): # , low_pt=61.5, high_pt_change=4,
+    def run_count(self, df=None, dfPath=None, dfName=None, parallel=True, record_events=False):
         if df is None:
             if not dfName:
                 raise ValueError("Provide either a DataFrame or dfName.")
@@ -189,19 +201,29 @@ class DcOS_fractal:
             full_path = Path(dfPath or ".") / dfName
             df = pd.read_csv(full_path) if ext == ".csv" else pd.read_parquet(full_path)
 
-        results = self.run_dcos_counts_parallel(df) if parallel else self.run_dcos_counts(df)
+        if parallel:
+            results, event_sequences, os_segments = self.run_dcos_all_parallel(
+                df, record_events=record_events
+            )
+        else:
+            results, event_sequences, os_segments = self.run_dcos_all_parallel(
+                df, max_workers=1, record_events=record_events
+            )
+
         results = self.compute_freqs(results, len(df))
-        results.attrs["thresholds"] = self.thresholds
+        results.attrs.update(
+            {"thresholds": self.thresholds, "event_sequences": event_sequences, "os_segments": os_segments}
+        )
         return results
 
-
-    def run_analysis(self, results, low_pt=61.5, high_pt_change=4):
-        results = self.determine_fit_region(results, low_pt, high_pt_change)
+    def run_analysis(self, results, pt_constant=61.21, pt_tolerance=2.5):
+        results = self.determine_fit_region(results, pt_constant, pt_tolerance)
         results = self.analyze_tail_scaling(results)
         return results
 
-
-    def run_count_and_analysis(self, df=None, dfPath=None, dfName=None, low_pt=61.5, high_pt_change=4, parallel=True):
+    def run_count_and_analysis(
+        self, df=None, dfPath=None, dfName=None, pt_constant=61.21, pt_tolerance=2.5, parallel=True
+    ):
         if df is None:
             if not dfName:
                 raise ValueError("Provide either a DataFrame or dfName.")
@@ -210,27 +232,31 @@ class DcOS_fractal:
             df = pd.read_csv(full_path) if ext == ".csv" else pd.read_parquet(full_path)
 
         results = self.run_count(df, dfPath, dfName, parallel)
-        results = self.run_analysis(results, low_pt, high_pt_change)
+        results = self.run_analysis(results, pt_constant, pt_tolerance)
         return results
-
 
     # ------------------------------ Save / Load ------------------------------
     def save_results(self, results, dfPath=None, dfName="dcos_results.pkl"):
-        self.dfPath = dfPath
-        path = Path(self.dfPath or ".") / dfName
+        path = Path(dfPath or ".") / dfName
+        bundle = {
+            "results": results,
+            "attrs": results.attrs
+        }
         with open(path, "wb") as f:
-            pickle.dump(results, f)
+            pickle.dump(bundle, f)
         if self.debugMode:
             print(f"Saved results to {path}")
         return self
 
     def load_results(self, dfPath=None, dfName="dcos_results.pkl"):
-        self.dfPath = dfPath
-        path = Path(self.dfPath or ".") / dfName
+        path = Path(dfPath or ".") / dfName
         if not path.exists():
             raise FileNotFoundError(f"No pickle file found at {path}")
         with open(path, "rb") as f:
-            results = pickle.load(f)
+            bundle = pickle.load(f)
+        results = bundle["results"]
+        for k, v in bundle["attrs"].items():
+            results.attrs[k] = v
         if self.debugMode:
             print(f"Loaded results from {path}")
         return results
