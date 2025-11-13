@@ -10,7 +10,7 @@ class DcOS_plotter:
         self.dfPath = Path(dfPath)
 
 
-    def fractal_plot(self, results, low_pt=61.5, high_pt_change=4,
+    def fractal_plot(self, results, pt_constant=61.21, pt_tolerance=2.5,
                      savePlots=True, filename="dcos_fractal.html", dfPath=None):
         fig = go.Figure()
 
@@ -47,12 +47,12 @@ class DcOS_plotter:
                 hoverinfo="skip", showlegend=False, yaxis="y1"
             ))
 
-        # --- highlight ±high_pt_change% DC region ---
+        # --- highlight ±pt_tolerance% DC region ---
         if np.isfinite(δ_min_fit) and np.isfinite(δ_max_fit):
             fig.add_vrect(
                 x0=δ_min_fit, x1=δ_max_fit,
                 fillcolor="yellow", opacity=0.25, layer="below", line_width=0,
-                annotation_text=f"{low_pt} ± {high_pt_change}% DC region",
+                annotation_text=f"{pt_constant} ± {pt_tolerance}% DC region",
                 annotation_position="top left"
             )
 
@@ -105,21 +105,26 @@ class DcOS_plotter:
                 range=[np.log10(min(results["threshold"])), np.log10(δ_crop)]
             ),
             yaxis=dict(
-                title="Event Frequency",
+                title=dict(
+                    text="Event Frequency",
+                    font=dict(size=18, color="#2878d1")
+                ),
                 type="log",
                 range=[-6, 0],
-                titlefont=dict(size=18, color="#2878d1"),
-                tickfont=dict(size=14, color="#2878d1")
+                tickfont=dict(size=14, color="#2878d1"),
+                gridcolor="#2878d1"
             ),
             yaxis2=dict(
-                title="% DC over total",
+                title=dict(
+                    text="% DC over total",
+                    font=dict(size=16, color="black")
+                ),
                 overlaying="y",
                 side="right",
                 type="linear",
-                titlefont=dict(size=16, color="black"),
                 tickfont=dict(size=12, color="black")
             ),
-            title=f"DcOS Fractal Scaling — Final {low_pt} ± {high_pt_change}% Region Fit and %DC/Total",
+            title=f"DcOS Fractal Scaling — Final {pt_constant} ± {pt_tolerance}% Region Fit and %DC/Total",
             legend=dict(x=0.02, y=0.98, font=dict(size=12)),
             template="plotly_white"
         )
