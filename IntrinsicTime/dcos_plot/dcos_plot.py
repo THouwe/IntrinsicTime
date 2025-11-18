@@ -11,7 +11,8 @@ class DcOS_plotter:
 
 
     def fractal_plot(self, results, pt_constant=61.21, pt_tolerance=2.5,
-                     savePlots=True, filename="dcos_fractal.html", dfPath=None):
+                     savePlots=True, save_png=True, filename="dcos_fractal", dfPath=None,
+                     title=None, xLeg=None, yLeg=None):
         fig = go.Figure()
 
         # --- recompute DC % and errors ---
@@ -68,7 +69,7 @@ class DcOS_plotter:
                 fig.add_trace(go.Scatter(
                     x=results["threshold"], y=results[col],
                     mode="lines",
-                    name=f"{key.replace('_freq', '')} final fit (β={slope:.2f})",
+                    name=f"{key.replace('_freq', '')} fitted (β={slope:.2f})",
                     line=dict(color=color, dash="dot", width=1.6),
                     opacity=0.9, yaxis="y1"
                 ))
@@ -124,8 +125,8 @@ class DcOS_plotter:
                 type="linear",
                 tickfont=dict(size=12, color="black")
             ),
-            title=f"DcOS Fractal Scaling — Final {pt_constant} ± {pt_tolerance}% Region Fit and %DC/Total",
-            legend=dict(x=0.02, y=0.98, font=dict(size=12)),
+            title=title or f"DcOS Fractal Scaling — Final {pt_constant} ± {pt_tolerance}% Region Fit and %DC/Total",
+            legend=dict(x=xLeg or 0.02, y=yLeg or 0.98, font=dict(size=12)),
             template="plotly_white"
         )
 
@@ -133,8 +134,15 @@ class DcOS_plotter:
         if savePlots:
             save_dir = Path(dfPath or self.dfPath)
             save_dir.mkdir(parents=True, exist_ok=True)
-            full_path = save_dir / filename
+            full_path = save_dir / f"{filename}.html"
             fig.write_html(full_path)
-            print(f"Full-range plot saved at {full_path}")
+            print(f"Full-range html plot saved at {full_path}")
+
+        if save_png:
+            save_dir = Path(dfPath or self.dfPath)
+            save_dir.mkdir(parents=True, exist_ok=True)
+            full_path = save_dir / f"{filename}.png"
+            fig.write_image(full_path, format="png", scale=6)
+            print(f"Full-range html plot saved at {full_path}")
 
         return fig

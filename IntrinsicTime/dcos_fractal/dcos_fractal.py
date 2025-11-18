@@ -153,11 +153,16 @@ class DcOS_fractal:
         if δ_max_fit is None:
             δ_max_fit = results.attrs.get("δ_max_fit", np.nan)
 
+        idx_start = results.attrs.get("idx_start_flat")
+        idx_end = results.attrs.get("idx_end_flat")
+
+        # Validate region
         if not np.isfinite(δ_min_fit) or not np.isfinite(δ_max_fit):
             if self.debugMode:
                 print("Invalid fit region → skipping regression.")
             return results
 
+        # Extract scaling-zone rows
         mask = (results["threshold"] >= δ_min_fit) & (results["threshold"] <= δ_max_fit)
         trimmed = results.loc[mask].copy()
 
@@ -166,30 +171,66 @@ class DcOS_fractal:
                 print("Not enough points for regression fit.")
             return results
 
+        # ---- Mean & Std %DC over scaling zone ----
+        mean_dc_pct = trimmed["dc_pct"].mean()
+        std_dc_pct = trimmed["dc_pct"].std()
+
+        # ---- Regression fits ----
         fits = {}
         for key in ["nEVtot_freq", "nDCtot_freq", "nOStot_freq"]:
             mask_valid = trimmed[key] > 0
             x = np.log10(trimmed.loc[mask_valid, "threshold"].values)
             y = np.log10(trimmed.loc[mask_valid, key].values)
+
             if len(np.unique(x)) < 2:
-                fits[key] = {"slope": np.nan, "intercept": np.nan, "r2": np.nan}
+                fits[key] = {
+                    "slope": np.nan,
+                    "intercept": np.nan,
+                    "r2": np.nan,
+                    "pvalue": np.nan
+                }
                 results[f"y_pred_{key}"] = np.nan
                 continue
-            slope, intercept, r, _, _ = linregress(x, y)
-            if np.isnan(slope) or np.isnan(intercept):
-                if self.debugMode:
-                    print(f"Skipping {key} fit due to NaNs.")
-                results[f"y_pred_{key}"] = np.nan
-                continue
-            fits[key] = {"slope": slope, "intercept": intercept, "r2": r**2}
+
+            slope, intercept, r, pvalue, _ = linregress(x, y)
+
+            fits[key] = {
+                "slope": slope,
+                "intercept": intercept,
+                "r2": r**2,
+                "pvalue": pvalue
+            }
+
             results[f"y_pred_{key}"] = 10 ** (intercept + slope * np.log10(results["threshold"]))
 
+        # ---- Store all outputs ----
         results.attrs["tail_fit"] = fits
-        results.attrs["fit_region"] = {"δ_min_fit": δ_min_fit, "δ_max_fit": δ_max_fit}
+        results.attrs["fit_region"] = {
+            "δ_min_fit": δ_min_fit,
+            "δ_max_fit": δ_max_fit
+        }
+
+        results.attrs["scaling_zone"] = {
+            "idx_min": idx_start,
+            "idx_max": idx_end,
+            "δ_min": δ_min_fit,
+            "δ_max": δ_max_fit,
+            "Δ_min": np.log10(δ_min_fit),
+            "Δ_max": np.log10(δ_max_fit)
+        }
+
+        results.attrs["dc_pct_stats"] = {
+            "mean": mean_dc_pct,
+            "std": std_dc_pct
+        }
 
         if self.debugMode:
+            print("Scaling zone:", results.attrs["scaling_zone"])
+            print("Mean %DC:", mean_dc_pct)
+            print("Std %DC:", std_dc_pct)
             for k, v in fits.items():
-                print(f"{k}: β={v['slope']:.3f}, R²={v['r2']:.3f}")
+                print(f"{k}: β={v['slope']:.3f}, R²={v['r2']:.3f}, p={v['pvalue']:.3g}")
+
         return results
 
     # ------------------------------ Main Pipeline ------------------------------
@@ -236,17 +277,50 @@ class DcOS_fractal:
         return results
 
     # ------------------------------ Save / Load ------------------------------
-    def save_results(self, results, dfPath=None, dfName="dcos_results.pkl"):
-        path = Path(dfPath or ".") / dfName
+    def save_results(self, results, dfPath=None, dfName="dcos_results"):
+        """
+        Saves results as:
+            <dfName>_results.csv  – DataFrame
+            <dfName>_attrs.csv    – attributes dictionary (flattened)
+        """
+        pkl_path = Path(dfPath or ".") / f"{dfName}.pkl"
         bundle = {
             "results": results,
             "attrs": results.attrs
         }
-        with open(path, "wb") as f:
+        with open(pkl_path, "wb") as f:
             pickle.dump(bundle, f)
         if self.debugMode:
-            print(f"Saved results to {path}")
+            print(f"Saved results to {pkl_path}")
+
+        # ---------------------- Save DataFrame ----------------------
+        df_path = Path(dfPath or ".") / f"{dfName}.csv"
+        results.to_csv(df_path, index=False)
+
+        # ---------------------- Save Attributes ----------------------
+        attrs_path = Path(dfPath or ".") / f"{dfName}_attrs.csv"
+
+        # Flatten attributes: convert non-scalars (dicts etc.) into repr strings
+        flat_attrs = {}
+        for k, v in results.attrs.items():
+            if isinstance(v, (int, float, str, bool)) or v is None:
+                flat_attrs[k] = v
+            else:
+                # store dicts, lists, arrays in readable JSON-style
+                try:
+                    flat_attrs[k] = repr(v)
+                except Exception:
+                    flat_attrs[k] = str(v)
+
+        # Save as CSV with columns: key, value
+        pd.DataFrame(
+            [{"key": k, "value": flat_attrs[k]} for k in flat_attrs]
+        ).to_csv(attrs_path, index=False)
+        if self.debugMode:
+            print(f"Saved DataFrame to   {df_path}")
+            print(f"Saved attributes to  {attrs_path}")
         return self
+
 
     def load_results(self, dfPath=None, dfName="dcos_results.pkl"):
         path = Path(dfPath or ".") / dfName

@@ -11,5 +11,6 @@ IntrinsicTime/dcos_core/__init__.py
 IntrinsicTime/dcos_core/dcos_core.py
 IntrinsicTime/dcos_fractal/__init__.py
 IntrinsicTime/dcos_fractal/dcos_fractal.py
+IntrinsicTime/dcos_fractal/dcos_tests.py
 IntrinsicTime/dcos_plot/__init__.py
 IntrinsicTime/dcos_plot/dcos_plot.py
