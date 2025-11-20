@@ -45,16 +45,17 @@ def extract_os_counts(event_sequence):
 # 3. Geometric fit test
 # ------------------------------------------------
 def test_geometric(K):
-    """Fit geometric parameter and run χ² + KS tests."""
+    """Fit geometric parameter (zero-based) and run χ² + KS tests."""
     if len(K) == 0:
         return np.nan, np.nan, np.nan
+    # Zero-based geometric: P(K = k) = p * (1 - p)**k, k = 0,1,2,...
     p_hat = 1.0 / (1.0 + np.mean(K))
-    # theoretical pmf up to max observed
     vals, counts = np.unique(K, return_counts=True)
-    probs = geom.pmf(vals, p_hat)
-    probs /= probs.sum()  # normalize finite support
+    # Use loc=-1 so that geom(p, loc=-1) has support {0,1,2,...}
+    probs = geom.pmf(vals, p_hat, loc=-1)
+    probs /= probs.sum()  # normalize over observed finite support
     chi2, p_chi2 = chisquare(counts, f_exp=probs * len(K))
-    ks, p_ks = kstest(K, "geom", args=(p_hat,))
+    ks, p_ks = kstest(K, "geom", args=(p_hat, -1))
     return p_hat, p_chi2, p_ks
 
 

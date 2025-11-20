@@ -49,24 +49,45 @@ Compute local slopes (b(\delta)) with a sliding window (w) on ((\log \delta,\log
 Mark the smallest δ where either (R^2 < R^2_{\min}) or (|\Delta b|) exceeds one standard error from adjacent windows.
 Your windowed method will return something close to δ ≈ 6e‑4 for this dataset if your visual read is correct.
 
-
 ### Example Usage
 ```
 import numpy as np
 import pandas as pd
-from IntrinsicTime import DcOS_fractal
+from IntrinsicTime.dcos_core import DcOS, Price, Sample
+from IntrinsicTime.dcos_fractal import DcOS_fractal, DcOS_tests
+from IntrinsicTime.dcos_plot import DcOS_plotter
 
 # Example input DataFrame
-df = pd.DataFrame({
-    "Timestamp": range(1000),
-    "Price": 100 + np.cumsum(np.random.randn(1000))
-})
+df = pd.DataFrame(
+    {
+        "Timestamp": np.arange(1_000),
+        "Price": 100 + np.cumsum(np.random.randn(1_000)),
+    }
+)
 
-# Initialize and run
+# Initialize and run the full fractal analysis
 analyzer = DcOS_fractal(debugMode=True)
-results, ranges = analyzer.run(df)
+results, fit_region = analyzer.run(df)
 
-# Display results
-print(results.head())
-print(ranges)
+# Display basic statistics
+print(results[["threshold", "nDCtot", "nOStot", "nEVtot"]].head())
+print("Fit region (δ_min_fit, δ_max_fit):", fit_region)
+
+# Optional: analyze results
+summary = DcOS_tests.analyze_dcos_results(
+    results,
+    event_sequences=results.attrs.get("event_sequences"),
+    os_segments=results.attrs.get("os_segments"),
+)
+
+# Optional: interactive Plotly visualization
+plotter = DcOS_plotter()
+fig = plotter.fractal_plot(
+    results,
+    pt_constant=61.21,
+    pt_tolerance=2.5,
+    savePlots=False,
+    save_png=False,
+)
+fig.show()
 ```

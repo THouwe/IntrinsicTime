@@ -244,11 +244,18 @@ class DcOS_fractal:
 
         if parallel:
             results, event_sequences, os_segments = self.run_dcos_all_parallel(
-                df, record_events=record_events
+                df,
+                thresholds=self.thresholds,
+                initialMode=self.initialMode,
+                record_events=record_events,
             )
         else:
             results, event_sequences, os_segments = self.run_dcos_all_parallel(
-                df, max_workers=1, record_events=record_events
+                df,
+                thresholds=self.thresholds,
+                initialMode=self.initialMode,
+                max_workers=1,
+                record_events=record_events,
             )
 
         results = self.compute_freqs(results, len(df))
@@ -275,6 +282,64 @@ class DcOS_fractal:
         results = self.run_count(df, dfPath, dfName, parallel)
         results = self.run_analysis(results, pt_constant, pt_tolerance)
         return results
+
+    def run(
+        self,
+        df=None,
+        dfPath=None,
+        dfName=None,
+        pt_constant=61.21,
+        pt_tolerance=2.5,
+        parallel=True,
+        record_events=False,
+    ):
+        """
+        High-level convenience pipeline.
+
+        Parameters
+        ----------
+        df : pd.DataFrame, optional
+            DataFrame with columns ['Timestamp', 'Price'].
+        dfPath : str or Path, optional
+            Directory where dfName is located (if df is not given).
+        dfName : str, optional
+            CSV or Parquet file name (if df is not given).
+        pt_constant : float, default 61.21
+            Target %DC used to identify the scaling region.
+        pt_tolerance : float, default 2.5
+            Allowed deviation around pt_constant in %.
+        parallel : bool, default True
+            Whether to run thresholds in parallel.
+        record_events : bool, default False
+            Whether to keep full event sequences and OS segments.
+
+        Returns
+        -------
+        results : pd.DataFrame
+            Per-threshold counts, frequencies and regression output.
+        fit_region : dict
+            Dictionary with δ_min_fit and δ_max_fit (may be NaN).
+        """
+        results = self.run_count(
+            df=df,
+            dfPath=dfPath,
+            dfName=dfName,
+            parallel=parallel,
+            record_events=record_events,
+        )
+        results = self.run_analysis(
+            results,
+            pt_constant=pt_constant,
+            pt_tolerance=pt_tolerance,
+        )
+        fit_region = results.attrs.get(
+            "fit_region",
+            {
+                "δ_min_fit": results.attrs.get("δ_min_fit", np.nan),
+                "δ_max_fit": results.attrs.get("δ_max_fit", np.nan),
+            },
+        )
+        return results, fit_region
 
     # ------------------------------ Save / Load ------------------------------
     def save_results(self, results, dfPath=None, dfName="dcos_results"):
