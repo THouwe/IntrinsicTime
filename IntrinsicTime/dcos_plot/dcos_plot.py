@@ -136,13 +136,21 @@ class DcOS_plotter:
             save_dir.mkdir(parents=True, exist_ok=True)
             full_path = save_dir / f"{filename}.html"
             fig.write_html(full_path)
-            print(f"Full-range html plot saved at {full_path}")
+            print(f"HTML plot saved at {full_path}")
 
         if save_png:
             save_dir = Path(dfPath or self.dfPath)
             save_dir.mkdir(parents=True, exist_ok=True)
             full_path = save_dir / f"{filename}.png"
-            fig.write_image(full_path, format="png", scale=6)
-            print(f"Full-range html plot saved at {full_path}")
+            try:
+                fig.write_image(full_path, format="png", scale=6)
+                print(f"PNG plot saved at {full_path}")
+            except Exception as exc:
+                # Typically: missing 'kaleido' for static image export
+                print(
+                    "Could not write PNG image. "
+                    "Install 'kaleido' (e.g. `pip install -U kaleido`) "
+                    f"to enable static image export. Error: {exc}"
+                )
 
         return fig
